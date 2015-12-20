@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+#/ command: rundeck-adhoc:command: "execute command string"
+#/ usage: rerun rundeck-adhoc:command  --project <>  --filter <> [ --threadcount <1>] [ --keepgoing <false>] [ --asuser <>]  --url <$RUNDECK_URL> [ --username <$RUNDECK_USER>] [ --password <$RUNDECK_PASSWORD>] [ --apikey <$RUNDECK_APIKEY>]  --exec <> 
+#/ rerun-variables: RERUN, RERUN_VERSION, RERUN_MODULES, RERUN_MODULE_DIR
+#/ option-variables: PROJECT FILTER THREADCOUNT KEEPGOING ASUSER URL USERNAME PASSWORD APIKEY EXEC
+
+. $RERUN_MODULE_DIR/lib/functions.sh command || { 
+  echo >&2 "Failed loading function library." ; exit 1 ; 
+}
+
+set -o errexit -o nounset -o pipefail
+
+rerun_options_parse "$@"
+
+CURL_OUT=$(mktemp -t curl.out.XXXXXXXX)
+trap 'rm $CURL_OUT' EXIT; # cleanup on exit
+
+
+rundeck_authenticate -u "$URL" -U "${USERNAME:-}" -p "${PASSWORD:-}" -k "${APIKEY:-}"
+
+APIURL=${URL}/api/14/project/${PROJECT}/run/command
+if ! http_code=$(rundeck_curl -w "%{http_code}" -H 'Accept: application/xml' \
+	--data-urlencode "filter=$FILTER" \
+	--data-urlencode "nodeThreadcount=${THREADCOUNT:-1}" \
+	--data-urlencode "nodeKeepgoing=${KEEPGOING:-true}" \
+	--data-urlencode "exec=${EXEC}" \
+    -X POST "${APIURL}" \
+    -o $CURL_OUT)
+then
+	rerun_die 3 "curl request failed (exit code: $?)"
+fi
+
+
+case ${http_code:-} in
+	200) : ;; # successful request
+   	40*) rerun_die "$(xmlstarlet sel -t -m //error -v message $CURL_OUT)" ;;
+	* ) rerun_die 3 "API error (HTTP response: $http_code, POST ${APIURL})." ;;
+esac  
+
+# Example output:
+# <execution id="25" 
+#    href="http://Targa.local:4440/api/15/execution/25" 
+#    permalink="http://Targa.local:4440/project/proofpoint/execution/show/25"/>
+#cat $CURL_OUT
+
+execId=$(xmlstarlet sel -t -m "/execution" -v @id $CURL_OUT)
+permalink=$(xmlstarlet sel -t -m "/execution" -v @permalink $CURL_OUT)
+
+# Print the output message
+
+printf "%s execution - %s\n" \
+	"$execId" "$permalink"
+
+# Done. Exit with last command exit status.
+exit $?
