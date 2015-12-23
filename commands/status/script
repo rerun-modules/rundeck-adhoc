@@ -39,10 +39,10 @@ case ${http_code:-} in
 	* ) rerun_die 3 "API error $http_code: GET ${APIURL})." ;;
 esac  
 
-xmlstarlet fo $CURL_OUT
+# xmlstarlet fo $CURL_OUT; # debug
 
 status=$(xmlstarlet sel -t -m "//execution" -v @status $CURL_OUT)
-description=$(xmlstarlet sel -t -m "//execution" -v description $CURL_OUT)
+description=$(xmlstarlet sel -t -m "//execution" -v "substring(normalize-space(description),0,20)" $CURL_OUT)
 ! argstring=$(xmlstarlet sel -t -m "//execution" -v argstring $CURL_OUT)
 project=$(xmlstarlet sel -t -m "//execution" -v @project $CURL_OUT)
 dateStarted=$(xmlstarlet sel -t -m "//execution/date-started" -v @unixtime $CURL_OUT)
@@ -51,20 +51,33 @@ dateStarted=$(xmlstarlet sel -t -m "//execution/date-started" -v @unixtime $CURL
 execId=$(xmlstarlet sel -t -m "//execution" -v @id $CURL_OUT)
 user=$(xmlstarlet sel -t -m "//execution" -v user $CURL_OUT)
 
+
 case "$status" in
 	succeeded|failed|aborted) 
-		duration=$(( ($dateEnded - $dateStarted) / 1000 ))
-		printf "[%s] %s %s - %s in %ss, by %s, project: %s, ended: %s \n" \
-	 		"$execId" "$description" "${argstring:-}" "$status" "$duration" "$user" "$project" "$dateEndedCal"
+	xmlstarlet sel -t -m "/executions/execution" \
+		-v @id \
+		-o " " -v @status \
+		-o " by " -v user \
+		-o " - ended: " -v date-ended \
+		-o " duration: " -v "(date-ended/@unixtime - date-started/@unixtime)" -o "s -" \
+		-o " exec: " -v "substring(normalize-space(description),0,30)" \
+		-n \
+		$CURL_OUT
 		;;
 	running) 
 		# Figure out elapsed time
 		elapsed_millis=$(( $tstamp - $dateStarted ))
 		elapsed_secs=$(( $elapsed_millis / 1000 ))
 
-		printf "[%s] %s - %s - %ss elapsed, by: %s, project: %s\n" \
-			"$execId" "$description" "$status" "$elapsed_secs" "$user" "$project"
-		;;		
+		xmlstarlet sel -t -m "/executions/execution" \
+			-v @id \
+			-o " " -v @status \
+			-o " by " -v user \
+			-o " elapsed: ${elapsed_secs}s -" \
+			-o " exec: " -v "substring(normalize-space(description),0,30)" \
+			-n \
+			$CURL_OUT
+		;;
 esac
 
 [[ "${DETAIL:-}" == "true" ]] && {
@@ -73,7 +86,7 @@ esac
 	then
 		:; # there were no successful nodes
 	else
-		printf "successful-nodes (%s): %s\n" "${#successfulNodes[*]}" "${successfulNodes[*]}"
+		printf "  successful-nodes (%s): %s\n" "${#successfulNodes[*]}" "${successfulNodes[*]}"
 	fi
 
 	if ! failedNodes=($(xmlstarlet sel -t -m "//failedNodes/node" -v @name -o " " $CURL_OUT))

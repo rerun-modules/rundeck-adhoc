@@ -52,7 +52,7 @@ permalink=$(xmlstarlet sel -t -m "/execution" -v @permalink $CURL_OUT)
 
 # Print the output message
 
-printf "[%s] permalink: %s\n" \
+printf "%s permalink: %s\n" \
 	"$execId" "$permalink"
 
 # Done. Exit with last command exit status.
